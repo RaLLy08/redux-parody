@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Hello World</title>
+    <script src="https://unpkg.com/react@17/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@17/umd/react-dom.development.js"></script>
+
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="text/babel">
+      const AppContext = React.createContext(null);
+
+      const createStore = (reducer, initialState) => {
+        let currentState = initialState;
+        let listeners = [];
+
+        const getState = () => currentState;
+        const dispatch = (action) => {
+          currentState = reducer(currentState, action);
+          listeners.forEach((listener) => listener());
+        };
+
+        const subscribe = (listener) => listeners.push(listener);
+
+        const unsubscribe = (listener) => {
+          const index = listeners.indexOf(listener);
+          ~index && listeners.splice(index, 1);
+        };
+
+        return { getState, dispatch, subscribe, unsubscribe };
+      };
+
+      const useSelector = (selector, equalityFn) => {
+        const ctx = React.useContext(AppContext);
+        const latestSelector = React.useRef();
+        const latestSelectedState = React.useRef();
+        const latestStoreState = React.useRef();
+
+        const storeState = ctx.store.getState();
+
+        let selectedState;
+        // if state does't change
+        if (
+          selector !== latestSelector.current ||
+          storeState !== latestStoreState.current
+        ) {
+          selectedState = selector(storeState);
+        } else {
+          selectedState = latestSelectedState.current;
+        }
+
+        React.useEffect(() => {
+          latestSelector.current = selector;
+          latestStoreState.current = storeState;
+          latestSelectedState.current = selectedState;
+        });
+
+        const forceRender = React.useReducer((s) => s + 1, 0)[1];
+
+        const checkForUpdate = () => {
+          const newSelectedState = latestSelector.current(ctx.store.getState());
+          if (
+            equalityFn &&
+            equalityFn(newSelectedState, latestSelectedState.current)
+          ) {
+            return;
+          }
+
+          forceRender();
+        };
+
+        React.useEffect(() => {
+          // subscribed on change when useSelector are used;
+          ctx.store.subscribe(checkForUpdate);
+          // unsubscribe if component was unmounted
+          return () => ctx.store.unsubscribe(checkForUpdate);
+        }, []);
+
+        return selectedState;
+      };
+
+      const useDispatch = () => {
+        const ctx = React.useContext(AppContext);
+
+        return ctx.store.dispatch;
+      };
+
+      const Provider = ({ store, children }) => {
+        return (
+          <AppContext.Provider value={{ store }}>
+            {children}
+          </AppContext.Provider>
+        );
+      };
+
+      // APP
+
+      // actions
+      const UPDATE_COUNTER = "UPDATE_COUNTER";
+      const CHANGE_STEP_SIZE = "CHANGE_STEP_SIZE";
+
+      // action creators
+      const updateCounter = (value) => ({
+        type: UPDATE_COUNTER,
+        payload: value,
+      });
+
+      const changeStepSize = (value) => ({
+        type: CHANGE_STEP_SIZE,
+        payload: value,
+      });
+
+      // selectors
+      const counterSelectors = {
+        counter: (state) => state.counter,
+        stepSize: (state) => state.stepSize,
+      };
+
+      // reducers
+      const defaultState = {
+        counter: 1,
+        stepSize: 1,
+      };
+
+      const reducer = (state = defaultState, action) => {
+        switch (action.type) {
+          case UPDATE_COUNTER:
+            return { ...state, counter: state.counter + action.payload };
+          case CHANGE_STEP_SIZE:
+            return { ...state, stepSize: action.payload };
+          default:
+            return state;
+        }
+      };
+
+      const Counter = () => {
+        const counter = useSelector(counterSelectors.counter);
+        const stepSize = useSelector(counterSelectors.stepSize);
+        const dispatch = useDispatch();
+
+        return (
+          <div>
+            <button onClick={() => dispatch(updateCounter(-1 * stepSize))}>
+              -
+            </button>
+            <span> {counter} </span>
+            <button onClick={() => dispatch(updateCounter(1 * stepSize))}>
+              +
+            </button>
+          </div>
+        );
+      };
+
+      const Step = () => {
+        const stepSize = useSelector(
+          counterSelectors.stepSize,
+          (current, prev) => current === prev
+        );
+        const dispatch = useDispatch();
+        return (
+          <div>
+            <div>Step</div>
+            <div>Current step: {stepSize}</div>
+            <input
+              type="range"
+              min="1"
+              max="5"
+              value={stepSize}
+              onChange={({ target }) => dispatch(changeStepSize(+target.value))}
+            />
+          </div>
+        );
+      };
+
+      ReactDOM.render(
+        <Provider store={createStore(reducer, defaultState)}>
+          <Step />
+          <Counter />
+        </Provider>,
+        document.getElementById("app")
+      );
+    </script>
+  </body>
+</html>
